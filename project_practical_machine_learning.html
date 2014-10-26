@@ -1,0 +1,214 @@
+Practical Machine Learning Project
+Long Pei
+October 25, 2014
+Load and process data
+1. Load required packages and the original data.
+library(caret)
+## Loading required package: lattice
+## Loading required package: ggplot2
+library(randomForest)
+## randomForest 4.6-10
+## Type rfNews() to see new features/changes/bug fixes.
+training_raw<-read.csv("pml-training.csv",na.strings= c("NA",""," "))
+2. Get the clean data by removing columns containing NAs
+# clean the data to exclude columns with NAs 
+count_NAs <- apply(training_raw, 2, function(x) {sum(is.na(x))})
+training_clean <- training_raw[,which(count_NAs == 0)]
+3. Trim the data to exclude identifier columns
+# remove identifier columns (first 7 columns)
+training_data <- training_clean[8:length(training_clean)]
+4. Seperate the training set into two parts (training and validate)
+# create a seperation of the data into training and validation
+set.seed(123)
+inTrain <- createDataPartition(training_data$classe, p=0.7, list=FALSE)
+training<-training_data[inTrain,]
+validate<-training_data[-inTrain,]
+Variable selection
+We first include all the columns in the tidy data in the training dataset and via randomForest method to get a rough model, then based on varImp function to rank the importance of all these factors and then select only top ten factors to apply an improved randomForest method fit model to the validation dataset.
+# check all the columns we now include and get a rough model with randomForest
+dim(training)
+## [1] 13737    53
+rough_fit<-randomForest(classe ~. , data=training)
+# a genral view of the rough fit
+rough_fit
+## 
+## Call:
+##  randomForest(formula = classe ~ ., data = training) 
+##                Type of random forest: classification
+##                      Number of trees: 500
+## No. of variables tried at each split: 7
+## 
+##         OOB estimate of  error rate: 0.58%
+## Confusion matrix:
+##      A    B    C    D    E class.error
+## A 3904    2    0    0    0    0.000512
+## B   11 2640    7    0    0    0.006772
+## C    0   17 2375    4    0    0.008765
+## D    0    0   26 2225    1    0.011989
+## E    0    0    3    9 2513    0.004752
+# use the varImp to rank the importancces of all the factors and refine our model
+varImp(rough_fit)
+##                      Overall
+## roll_belt             840.75
+## pitch_belt            472.63
+## yaw_belt              623.01
+## total_accel_belt      155.25
+## gyros_belt_x           70.73
+## gyros_belt_y           76.66
+## gyros_belt_z          212.25
+## accel_belt_x           84.26
+## accel_belt_y           89.87
+## accel_belt_z          306.40
+## magnet_belt_x         172.99
+## magnet_belt_y         274.52
+## magnet_belt_z         265.82
+## roll_arm              226.28
+## pitch_arm             126.19
+## yaw_arm               167.99
+## total_accel_arm        70.59
+## gyros_arm_x            90.16
+## gyros_arm_y            94.36
+## gyros_arm_z            42.25
+## accel_arm_x           172.78
+## accel_arm_y           112.88
+## accel_arm_z            97.41
+## magnet_arm_x          189.66
+## magnet_arm_y          166.20
+## magnet_arm_z          135.16
+## roll_dumbbell         302.52
+## pitch_dumbbell        123.49
+## yaw_dumbbell          178.00
+## total_accel_dumbbell  185.36
+## gyros_dumbbell_x       94.40
+## gyros_dumbbell_y      184.67
+## gyros_dumbbell_z       62.26
+## accel_dumbbell_x      173.33
+## accel_dumbbell_y      287.38
+## accel_dumbbell_z      236.64
+## magnet_dumbbell_x     339.59
+## magnet_dumbbell_y     473.99
+## magnet_dumbbell_z     510.51
+## roll_forearm          406.27
+## pitch_forearm         549.79
+## yaw_forearm           113.49
+## total_accel_forearm    79.92
+## gyros_forearm_x        53.94
+## gyros_forearm_y        90.16
+## gyros_forearm_z        61.10
+## accel_forearm_x       231.34
+## accel_forearm_y       103.94
+## accel_forearm_z       171.86
+## magnet_forearm_x      161.32
+## magnet_forearm_y      156.05
+## magnet_forearm_z      191.56
+# use rough_fit on the validate part to check performances
+predictCrossVal <- predict(rough_fit, validate)
+confusionMatrix(validate$classe, predictCrossVal)
+## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 1673    1    0    0    0
+##          B    5 1134    0    0    0
+##          C    0   11 1015    0    0
+##          D    0    0   15  948    1
+##          E    0    0    0    0 1082
+## 
+## Overall Statistics
+##                                         
+##                Accuracy : 0.994         
+##                  95% CI : (0.992, 0.996)
+##     No Information Rate : 0.285         
+##     P-Value [Acc > NIR] : <2e-16        
+##                                         
+##                   Kappa : 0.993         
+##  Mcnemar's Test P-Value : NA            
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity             0.997    0.990    0.985    1.000    0.999
+## Specificity             1.000    0.999    0.998    0.997    1.000
+## Pos Pred Value          0.999    0.996    0.989    0.983    1.000
+## Neg Pred Value          0.999    0.997    0.997    1.000    1.000
+## Prevalence              0.285    0.195    0.175    0.161    0.184
+## Detection Rate          0.284    0.193    0.172    0.161    0.184
+## Detection Prevalence    0.284    0.194    0.174    0.164    0.184
+## Balanced Accuracy       0.998    0.994    0.992    0.998    1.000
+Build up the model
+Here we build up the improved mode fit to replace the rough fit on the validate part to check performances.
+# use top 10 variables to build up the model
+refined_index<-order(varImp(rough_fit)$Overall,decreasing = TRUE)[1:10]
+# reshape the 10 improved columns (plus 'classe')
+improve_training<-training[,c(refined_index,53)]
+model_fit<-randomForest(classe ~. , data=improve_training)
+# a genral view of the rough fit
+model_fit
+## 
+## Call:
+##  randomForest(formula = classe ~ ., data = improve_training) 
+##                Type of random forest: classification
+##                      Number of trees: 500
+## No. of variables tried at each split: 3
+## 
+##         OOB estimate of  error rate: 1.35%
+## Confusion matrix:
+##      A    B    C    D    E class.error
+## A 3873   17   14    2    0    0.008449
+## B   20 2587   35   16    0    0.026712
+## C    3   15 2360   18    0    0.015025
+## D    0    0   18 2230    4    0.009769
+## E    0   10    8    5 2502    0.009109
+# use model_fit on the validate part to check performances
+predictCrossVal <- predict(rough_fit, validate)
+confusionMatrix(validate$classe, predictCrossVal)
+## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 1673    1    0    0    0
+##          B    5 1134    0    0    0
+##          C    0   11 1015    0    0
+##          D    0    0   15  948    1
+##          E    0    0    0    0 1082
+## 
+## Overall Statistics
+##                                         
+##                Accuracy : 0.994         
+##                  95% CI : (0.992, 0.996)
+##     No Information Rate : 0.285         
+##     P-Value [Acc > NIR] : <2e-16        
+##                                         
+##                   Kappa : 0.993         
+##  Mcnemar's Test P-Value : NA            
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity             0.997    0.990    0.985    1.000    0.999
+## Specificity             1.000    0.999    0.998    0.997    1.000
+## Pos Pred Value          0.999    0.996    0.989    0.983    1.000
+## Neg Pred Value          0.999    0.997    0.997    1.000    1.000
+## Prevalence              0.285    0.195    0.175    0.161    0.184
+## Detection Rate          0.284    0.193    0.172    0.161    0.184
+## Detection Prevalence    0.284    0.194    0.174    0.164    0.184
+## Balanced Accuracy       0.998    0.994    0.992    0.998    1.000
+Prediction on test data
+test_raw<-read.csv("pml-testing.csv",na.strings= c("NA",""," "))
+count_NAs <- apply(test_raw, 2, function(x) {sum(is.na(x))})
+test_clean <- test_raw[,which(count_NAs == 0)]
+test_data <- test_clean[8:length(test_clean)]
+test<-test_data[,c(refined_index)]
+# make prodiction
+answers <- predict(model_fit, test)
+answers<-as.character(answers)
+
+# pml_write_files function
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(answers)
