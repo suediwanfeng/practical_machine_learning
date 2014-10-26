@@ -1,0 +1,89 @@
+---
+title: "Practical Machine Learning Project"
+author: "Long Pei"
+date: "October 25, 2014"
+output: html_document
+---
+
+##Load and process data
+
+### 1. Load required packages and the original data.
+
+```{r}
+library(caret)
+library(randomForest)
+training_raw<-read.csv("pml-training.csv",na.strings= c("NA",""," "))
+```
+### 2. Get the clean data by removing columns containing NAs
+```{r}
+# clean the data to exclude columns with NAs 
+count_NAs <- apply(training_raw, 2, function(x) {sum(is.na(x))})
+training_clean <- training_raw[,which(count_NAs == 0)]
+```
+### 3. Trim the data to exclude identifier columns
+```{r}
+# remove identifier columns (first 7 columns)
+training_data <- training_clean[8:length(training_clean)]
+```
+### 4. Seperate the training set into two parts (training and validate)
+```{r}
+# create a seperation of the data into training and validation
+set.seed(123)
+inTrain <- createDataPartition(training_data$classe, p=0.7, list=FALSE)
+training<-training_data[inTrain,]
+validate<-training_data[-inTrain,]
+```
+
+##Variable selection
+###We first include all the columns in the tidy data in the training dataset and via randomForest method to get a rough model, then based on varImp function to rank the importance of all these factors and then select only top ten factors to apply an improved randomForest method fit model to the validation dataset.
+
+```{r}
+# check all the columns we now include and get a rough model with randomForest
+dim(training)
+rough_fit<-randomForest(classe ~. , data=training)
+# a genral view of the rough fit
+rough_fit
+# use the varImp to rank the importancces of all the factors and refine our model
+varImp(rough_fit)
+# use rough_fit on the validate part to check performances
+predictCrossVal <- predict(rough_fit, validate)
+confusionMatrix(validate$classe, predictCrossVal)
+```
+
+##Build up the model
+###Here we build up the improved mode fit to replace the rough fit on the validate part to check performances.
+
+```{r}
+# use top 10 variables to build up the model
+refined_index<-order(varImp(rough_fit)$Overall,decreasing = TRUE)[1:10]
+# reshape the 10 improved columns (plus 'classe')
+improve_training<-training[,c(refined_index,53)]
+model_fit<-randomForest(classe ~. , data=improve_training)
+# a genral view of the rough fit
+model_fit
+# use model_fit on the validate part to check performances
+predictCrossVal <- predict(rough_fit, validate)
+confusionMatrix(validate$classe, predictCrossVal)
+```
+
+##Prediction on test data
+```{r}
+test_raw<-read.csv("pml-testing.csv",na.strings= c("NA",""," "))
+count_NAs <- apply(test_raw, 2, function(x) {sum(is.na(x))})
+test_clean <- test_raw[,which(count_NAs == 0)]
+test_data <- test_clean[8:length(test_clean)]
+test<-test_data[,c(refined_index)]
+# make prodiction
+answers <- predict(model_fit, test)
+answers<-as.character(answers)
+
+# pml_write_files function
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(answers)
+```
